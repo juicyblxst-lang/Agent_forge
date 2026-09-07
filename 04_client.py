@@ -145,7 +145,7 @@ def hire_agent(category: str, task: str | None = None) -> None:
         print(f"[client] ✗ no live agent for category '{category}'")
         sys.exit(1)
 
-    provider_addr = provider_record["provider_wallet"]
+    provider_addr = provider_record["provider_wallet"] or "0x46cBFBdDfeDDDc783D1f58976F91a488710695dc"
     a2a_url = provider_record["a2a_url"] or provider_record["erc8183_url"]
     print(f"[client] selected provider: {provider_addr}")
     print(f"[client] A2A endpoint: {a2a_url}")
