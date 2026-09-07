@@ -233,10 +233,10 @@ def serve_manifest(job_id: int):
         return JSONResponse({"error": "manifest not found"}, status_code=404)
     return PlainTextResponse(content=text, media_type="application/json")
 
-
 def _start_watcher():
+    import asyncio
     print(f"[provider] starting funded_job_watcher for {PROVIDER_ADDR}")
-    funded_job_watcher(job_ops, _on_funded_job, interval=15)
+    asyncio.run(funded_job_watcher(job_ops, _on_funded_job, interval=15))
 
 
 # Start watcher at module load — works whether run directly or via uvicorn
