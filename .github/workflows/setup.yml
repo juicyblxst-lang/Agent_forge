@@ -34,6 +34,7 @@ jobs:
         env:
           PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
           CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          PROVIDER_WALLET_ADDRESS: ${{ secrets.PROVIDER_WALLET_ADDRESS }}
           WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
           RPC_URL: https://bsc-testnet-rpc.publicnode.com
           NETWORK: bsc-testnet
