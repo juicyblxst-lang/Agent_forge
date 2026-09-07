@@ -92,20 +92,25 @@ async def a2a_endpoint(request: Request):
         return JSONResponse({"error": "unsupported method"}, status_code=400)
 
     message = params.get("message", {})
-    parts   = message.get("parts", [])
-    data    = next((p.get("data", {}) for p in parts if "data" in p), {})
-    skill   = data.get("skill", "")
-
     if skill == "negotiate-erc8183-job":
+        import time, hashlib
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+
         task_description = data.get("task_description", "")
         payment_token    = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
         price_u          = 1 * 10**18
+        expiry           = int(time.time()) + 600  # 10 minutes
 
-        quote = job_ops.build_signed_quote(
-            task_description=task_description,
-            price=price_u,
-            payment_token=payment_token,
-        )
+        # Build negotiation hash manually — same spec as ERC-8183
+        raw = f"{task_description}:{price_u}:{payment_token}:{expiry}"
+        negotiation_hash = "0x" + hashlib.sha256(raw.encode()).hexdigest()
+
+        # Sign with provider key
+        account      = Account.from_key(PROVIDER_KEY)
+        msg          = encode_defunct(hexstr=negotiation_hash)
+        signed       = account.sign_message(msg)
+        provider_sig = signed.signature.hex()
 
         return JSONResponse({
             "jsonrpc": "2.0",
@@ -119,8 +124,9 @@ async def a2a_endpoint(request: Request):
                             "provider_address": PROVIDER_ADDR,
                             "payment_token": payment_token,
                             "price": str(price_u),
-                            "negotiation_hash": quote["negotiation_hash"],
-                            "provider_sig": quote["provider_sig"],
+                            "negotiation_hash": negotiation_hash,
+                            "provider_sig": "0x" + provider_sig if not provider_sig.startswith("0x") else provider_sig,
+                            "expiry": expiry,
                             "terms": {
                                 "price": str(price_u),
                                 "deliverables": "Structured analysis report in plain text",
