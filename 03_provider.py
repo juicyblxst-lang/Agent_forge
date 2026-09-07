@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import threading
@@ -23,11 +22,11 @@ from agents.grid_trading import run_grid_trading_analysis
 from agents.yield_opt import run_yield_analysis
 from agents.health_factor import run_health_factor_analysis
 
-PROVIDER_KEY   = os.environ["PROVIDER_PRIVATE_KEY"]
-WALLET_PASS    = os.getenv("WALLET_PASSWORD", "changeme")
-NETWORK        = os.getenv("NETWORK", "bsc-testnet")
-AGENT_HOST     = os.getenv("AGENT_HOST", "http://localhost:8010")
-PAYMENT_TOKEN  = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
+PROVIDER_KEY  = os.environ["PROVIDER_PRIVATE_KEY"]
+WALLET_PASS   = os.getenv("WALLET_PASSWORD", "changeme")
+NETWORK       = os.getenv("NETWORK", "bsc-testnet")
+AGENT_HOST    = os.getenv("AGENT_HOST", "http://localhost:8010")
+PAYMENT_TOKEN = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
 
 wallet        = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
 identity_sdk  = ERC8004Agent(wallet_provider=wallet, network=NETWORK)
@@ -37,7 +36,7 @@ ACCOUNT       = Account.from_key(PROVIDER_KEY)
 
 app = FastAPI()
 
-_raw_origins = os.getenv("CORS_ORIGINS", "*")
+_raw_origins    = os.getenv("CORS_ORIGINS", "*")
 allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
 
 app.add_middleware(
@@ -99,7 +98,6 @@ async def a2a_endpoint(request: Request):
     data    = next((p.get("data", {}) for p in parts if "data" in p), {})
     skill   = data.get("skill", "")
 
-    # ── Skill: negotiate-erc8183-job ─────────────────────────────────────────
     if skill == "negotiate-erc8183-job":
         task_description = data.get("task_description", "")
         price_u  = 1 * 10**18
@@ -130,10 +128,10 @@ async def a2a_endpoint(request: Request):
                             "provider_sig":     sig,
                             "expiry":           expiry,
                             "terms": {
-                                "price":           str(price_u),
-                                "deliverables":    "Structured analysis report in plain text",
-                                "quality":         "Real on-chain data, canonical JSON manifest",
-                                "expiry_minutes":  10,
+                                "price":          str(price_u),
+                                "deliverables":   "Structured analysis report in plain text",
+                                "quality":        "Real on-chain data, canonical JSON manifest",
+                                "expiry_minutes": 10,
                             },
                         },
                     }],
@@ -141,7 +139,6 @@ async def a2a_endpoint(request: Request):
             },
         })
 
-    # ── Skill: erc8183-job-status ─────────────────────────────────────────────
     elif skill == "erc8183-job-status":
         job_id = data.get("job_id")
         if not job_id:
@@ -183,36 +180,12 @@ def _run_agent(category: str, client: str, job: dict) -> str:
     return f"Analysis complete for: {job.get('description', '')}"
 
 
-def _build_manifest(job_id: int, content: str) -> tuple[str, str]:
-    addresses = job_ops.contract_addresses
-    manifest  = {
-        "version":  1,
-        "job_id":   job_id,
-        "chain_id": 97,
-        "contracts": {
-            "commerce": addresses["commerce"],
-            "router":   addresses["router"],
-            "policy":   addresses["policy"],
-        },
-        "response": {
-            "content":      content,
-            "content_type": "text/plain",
-        },
-        "metadata": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "agent":        "smart-money-era-provider",
-        },
-    }
-    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    digest    = Web3.keccak(text=canonical).hex()
-    return canonical, digest
-
-
 _manifest_store: dict[str, str] = {}
 
 
 def _on_funded_job(job: dict) -> None:
-    job_id = job["job_id"]
+    # SDK delivers camelCase keys
+    job_id = job.get("jobId") or job.get("job_id")
     client = job.get("client", "unknown")
     task   = job.get("description", "")
 
@@ -222,17 +195,30 @@ def _on_funded_job(job: dict) -> None:
     category = _detect_category(task)
     print(f"[provider] routing → {category}")
     content = _run_agent(category, client, job)
+    print(f"[provider] agent output: {len(content)} chars")
 
-    manifest_text, manifest_hash = _build_manifest(job_id, content)
-    _manifest_store[str(job_id)] = manifest_text
-    deliverable_url = f"{AGENT_HOST}/manifests/{job_id}"
+    # Build and store manifest for /manifests/{job_id}
+    manifest = json.dumps({
+        "version":  1,
+        "job_id":   job_id,
+        "chain_id": 97,
+        "response": {
+            "content":      content,
+            "content_type": "text/plain",
+        },
+        "metadata": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "agent":        "smart-money-era-provider",
+        },
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
-    print(f"[provider] manifest hash: {manifest_hash}")
+    _manifest_store[str(job_id)] = manifest
+
     try:
+        # submit_result takes the deliverable content string — SDK hashes it internally
         result = job_ops.submit_result(
             job_id=job_id,
-            deliverable=manifest_hash,
-            deliverable_url=deliverable_url,
+            deliverable=content,
         )
         print(f"[provider] ✓ submitted tx: {result['transactionHash']}")
     except Exception as e:
