@@ -236,12 +236,7 @@ def serve_manifest(job_id: int):
 
 def _start_watcher():
     print(f"[provider] starting funded_job_watcher for {PROVIDER_ADDR}")
-    funded_job_watcher(
-        job_ops=job_ops,
-        provider_address=PROVIDER_ADDR,
-        on_job=_on_funded_job,
-        poll_interval=15,
-    )
+    funded_job_watcher(job_ops, _on_funded_job, interval=15)
 
 
 # Start watcher at module load — works whether run directly or via uvicorn
