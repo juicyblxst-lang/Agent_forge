@@ -1,17 +1,3 @@
-"""
-03_provider.py — The actual running agent server.
-
-Architecture:
-- Serves A2A card at /.well-known/agent-card.json
-- Handles POST /a2a message/send with skill: negotiate-erc8183-job
-- Runs funded_job_watcher poll loop in a background thread
-- Builds the DeliverableManifest with CANONICAL JSON (sort_keys=True, ensure_ascii=True)
-- Calls submit_result which hashes the manifest and writes it on-chain
-
-Run:
-    uvicorn 03_provider:app --port 8010 --host 0.0.0.0
-"""
-
 import json
 import os
 import threading
@@ -34,26 +20,29 @@ from agents.yield_opt import run_yield_analysis
 from agents.health_factor import run_health_factor_analysis
 
 PROVIDER_KEY = os.environ["PROVIDER_PRIVATE_KEY"]
-WALLET_PASS = os.getenv("WALLET_PASSWORD", "changeme")
-NETWORK = os.getenv("NETWORK", "bsc-testnet")
-AGENT_HOST = os.getenv("AGENT_HOST", "http://localhost:8010")
+WALLET_PASS  = os.getenv("WALLET_PASSWORD", "changeme")
+NETWORK      = os.getenv("NETWORK", "bsc-testnet")
+AGENT_HOST   = os.getenv("AGENT_HOST", "http://localhost:8010")
 
-wallet = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
+wallet       = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
 identity_sdk = ERC8004Agent(wallet_provider=wallet, network=NETWORK)
-job_ops = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
+job_ops      = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
 PROVIDER_ADDR = wallet.address
 
 app = FastAPI()
 
-# Deployment-only configuration: allows the Vercel-hosted UI to call the API.
-# Agent implementations and execution logic are unchanged.
-allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
+allowed_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "*").split(",")
+    if o.strip()
+] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 AGENT_CARD = {
@@ -95,7 +84,7 @@ def status():
 
 @app.post("/a2a")
 async def a2a_endpoint(request: Request):
-    body = await request.json()
+    body   = await request.json()
     method = body.get("method", "")
     params = body.get("params", {})
 
@@ -103,15 +92,14 @@ async def a2a_endpoint(request: Request):
         return JSONResponse({"error": "unsupported method"}, status_code=400)
 
     message = params.get("message", {})
-    parts = message.get("parts", [])
-    data = next((p.get("data", {}) for p in parts if "data" in p), {})
-    skill = data.get("skill", "")
+    parts   = message.get("parts", [])
+    data    = next((p.get("data", {}) for p in parts if "data" in p), {})
+    skill   = data.get("skill", "")
 
     if skill == "negotiate-erc8183-job":
         task_description = data.get("task_description", "")
-        payment_token = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
-price_u = 1 * 10**18
-        price_u = 1 * 10**18
+        payment_token    = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
+        price_u          = 1 * 10**18
 
         quote = job_ops.build_signed_quote(
             task_description=task_description,
@@ -160,7 +148,6 @@ price_u = 1 * 10**18
 
 
 def _detect_category(job_description: str) -> str:
-    """Infer which agent category this job is for from the task description."""
     desc = job_description.lower()
     if "rebalanc" in desc:
         return "rebalancing"
@@ -174,8 +161,6 @@ def _detect_category(job_description: str) -> str:
 
 
 def _run_agent_for_category(category: str, wallet_address: str, job: dict) -> str:
-    """Dispatch to the correct agent implementation and return the deliverable string."""
-    task = job.get("description", "")
     if category == "rebalancing":
         return run_rebalancing_analysis(wallet_address)
     elif category == "grid-trading":
@@ -184,12 +169,10 @@ def _run_agent_for_category(category: str, wallet_address: str, job: dict) -> st
         return run_yield_analysis(wallet_address)
     elif category == "health-factor":
         return run_health_factor_analysis(wallet_address)
-    else:
-        return f"Analysis complete for task: {task}"
+    return f"Analysis complete for task: {job.get('description', '')}"
 
 
 def _build_canonical_manifest(job_id: int, content: str) -> tuple[str, str]:
-    """Build the DeliverableManifest with canonical JSON and return its hash."""
     addresses = job_ops.contract_addresses
     manifest = {
         "version": 1,
@@ -197,20 +180,20 @@ def _build_canonical_manifest(job_id: int, content: str) -> tuple[str, str]:
         "chain_id": 97,
         "contracts": {
             "commerce": addresses["commerce"],
-            "router": addresses["router"],
-            "policy": addresses["policy"],
+            "router":   addresses["router"],
+            "policy":   addresses["policy"],
         },
         "response": {
-            "content": content,
+            "content":      content,
             "content_type": "text/plain",
         },
         "metadata": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "agent": "smart-money-era-provider",
+            "agent":        "smart-money-era-provider",
         },
     }
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    digest = Web3.keccak(text=canonical).hex()
+    digest    = Web3.keccak(text=canonical).hex()
     return canonical, digest
 
 
@@ -218,10 +201,9 @@ _manifest_store: dict[str, str] = {}
 
 
 def _on_funded_job(job: dict) -> None:
-    """Called by funded_job_watcher for each FUNDED job."""
     job_id = job["job_id"]
     client = job.get("client", "unknown")
-    task = job.get("description", "")
+    task   = job.get("description", "")
 
     print(f"\n[provider] FUNDED job #{job_id} received")
     print(f"[provider] client: {client}")
@@ -252,7 +234,6 @@ def _on_funded_job(job: dict) -> None:
 
 @app.get("/manifests/{job_id}")
 def serve_manifest(job_id: int):
-    """Serve the manifest verbatim so the buyer can verify its hash."""
     text = _manifest_store.get(str(job_id))
     if not text:
         return JSONResponse({"error": "manifest not found"}, status_code=404)
@@ -261,7 +242,6 @@ def serve_manifest(job_id: int):
 
 
 def _start_poll_loop():
-    """Start the funded_job_watcher in a background thread."""
     print(f"[provider] starting funded_job_watcher for {PROVIDER_ADDR}")
     funded_job_watcher(
         job_ops=job_ops,
