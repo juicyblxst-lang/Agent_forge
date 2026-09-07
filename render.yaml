@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: agent-forge-api
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -e .
+    startCommand: uvicorn 03_provider:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /status
+    envVars:
+      - key: PROVIDER_PRIVATE_KEY
+        sync: false
+      - key: WALLET_PASSWORD
+        sync: false
+      - key: NETWORK
+        value: bsc-testnet
+      - key: AGENT_HOST
+        sync: false
+      - key: RPC_URL
+        sync: false
