@@ -1,0 +1,51 @@
+name: Setup & Register Agents
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_step:
+        description: 'Which step to run'
+        required: true
+        default: 'funds'
+        type: choice
+        options:
+          - funds
+          - register
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install bnbagent fastapi uvicorn httpx python-dotenv web3 eth-account requests
+
+      - name: Run setup_funds
+        if: ${{ github.event.inputs.run_step == 'funds' }}
+        env:
+          PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
+          CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+          U_TOKEN_ADDRESS: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"
+          U_FAUCET_ADDRESS: "0x86e9197CC0F76E4e4aaa7082180945196bBAb5D3"
+        run: python 01_setup_funds.py
+
+      - name: Run register_provider
+        if: ${{ github.event.inputs.run_step == 'register' }}
+        env:
+          PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+          AGENT_HOST: https://agent-forge-atdz.onrender.com
+        run: python 02_register_provider.py
