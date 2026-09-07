@@ -1,12 +1,16 @@
+import hashlib
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from web3 import Web3
 
 load_dotenv()
@@ -19,23 +23,22 @@ from agents.grid_trading import run_grid_trading_analysis
 from agents.yield_opt import run_yield_analysis
 from agents.health_factor import run_health_factor_analysis
 
-PROVIDER_KEY = os.environ["PROVIDER_PRIVATE_KEY"]
-WALLET_PASS  = os.getenv("WALLET_PASSWORD", "changeme")
-NETWORK      = os.getenv("NETWORK", "bsc-testnet")
-AGENT_HOST   = os.getenv("AGENT_HOST", "http://localhost:8010")
+PROVIDER_KEY   = os.environ["PROVIDER_PRIVATE_KEY"]
+WALLET_PASS    = os.getenv("WALLET_PASSWORD", "changeme")
+NETWORK        = os.getenv("NETWORK", "bsc-testnet")
+AGENT_HOST     = os.getenv("AGENT_HOST", "http://localhost:8010")
+PAYMENT_TOKEN  = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
 
-wallet       = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
-identity_sdk = ERC8004Agent(wallet_provider=wallet, network=NETWORK)
-job_ops      = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
+wallet        = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
+identity_sdk  = ERC8004Agent(wallet_provider=wallet, network=NETWORK)
+job_ops       = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
 PROVIDER_ADDR = wallet.address
+ACCOUNT       = Account.from_key(PROVIDER_KEY)
 
 app = FastAPI()
 
-allowed_origins = [
-    o.strip()
-    for o in os.getenv("CORS_ORIGINS", "*").split(",")
-    if o.strip()
-] or ["*"]
+_raw_origins = os.getenv("CORS_ORIGINS", "*")
+allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -92,25 +95,24 @@ async def a2a_endpoint(request: Request):
         return JSONResponse({"error": "unsupported method"}, status_code=400)
 
     message = params.get("message", {})
+    parts   = message.get("parts", [])
+    data    = next((p.get("data", {}) for p in parts if "data" in p), {})
+    skill   = data.get("skill", "")
+
+    # ── Skill: negotiate-erc8183-job ─────────────────────────────────────────
     if skill == "negotiate-erc8183-job":
-        import time, hashlib
-        from eth_account import Account
-        from eth_account.messages import encode_defunct
-
         task_description = data.get("task_description", "")
-        payment_token    = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
-        price_u          = 1 * 10**18
-        expiry           = int(time.time()) + 600  # 10 minutes
+        price_u  = 1 * 10**18
+        expiry   = int(time.time()) + 600
 
-        # Build negotiation hash manually — same spec as ERC-8183
-        raw = f"{task_description}:{price_u}:{payment_token}:{expiry}"
+        raw              = f"{task_description}:{price_u}:{PAYMENT_TOKEN}:{expiry}"
         negotiation_hash = "0x" + hashlib.sha256(raw.encode()).hexdigest()
 
-        # Sign with provider key
-        account      = Account.from_key(PROVIDER_KEY)
-        msg          = encode_defunct(hexstr=negotiation_hash)
-        signed       = account.sign_message(msg)
-        provider_sig = signed.signature.hex()
+        msg    = encode_defunct(hexstr=negotiation_hash)
+        signed = ACCOUNT.sign_message(msg)
+        sig    = signed.signature.hex()
+        if not sig.startswith("0x"):
+            sig = "0x" + sig
 
         return JSONResponse({
             "jsonrpc": "2.0",
@@ -120,18 +122,18 @@ async def a2a_endpoint(request: Request):
                     "parts": [{
                         "type": "data",
                         "data": {
-                            "skill": skill,
+                            "skill":            skill,
                             "provider_address": PROVIDER_ADDR,
-                            "payment_token": payment_token,
-                            "price": str(price_u),
+                            "payment_token":    PAYMENT_TOKEN,
+                            "price":            str(price_u),
                             "negotiation_hash": negotiation_hash,
-                            "provider_sig": "0x" + provider_sig if not provider_sig.startswith("0x") else provider_sig,
-                            "expiry": expiry,
+                            "provider_sig":     sig,
+                            "expiry":           expiry,
                             "terms": {
-                                "price": str(price_u),
-                                "deliverables": "Structured analysis report in plain text",
-                                "quality": "Real on-chain data, canonical JSON manifest",
-                                "expiry_minutes": 10,
+                                "price":           str(price_u),
+                                "deliverables":    "Structured analysis report in plain text",
+                                "quality":         "Real on-chain data, canonical JSON manifest",
+                                "expiry_minutes":  10,
                             },
                         },
                     }],
@@ -139,6 +141,7 @@ async def a2a_endpoint(request: Request):
             },
         })
 
+    # ── Skill: erc8183-job-status ─────────────────────────────────────────────
     elif skill == "erc8183-job-status":
         job_id = data.get("job_id")
         if not job_id:
@@ -153,36 +156,38 @@ async def a2a_endpoint(request: Request):
     return JSONResponse({"error": f"unknown skill: {skill}"}, status_code=400)
 
 
-def _detect_category(job_description: str) -> str:
-    desc = job_description.lower()
-    if "rebalanc" in desc:
+# ── Agent dispatch ────────────────────────────────────────────────────────────
+
+def _detect_category(desc: str) -> str:
+    d = desc.lower()
+    if "rebalanc" in d:
         return "rebalancing"
-    if "grid" in desc:
+    if "grid" in d:
         return "grid-trading"
-    if "yield" in desc or "apr" in desc or "liquidity" in desc:
+    if "yield" in d or "apr" in d or "liquidity" in d:
         return "yield"
-    if "health" in desc or "liquidat" in desc or "borrow" in desc:
+    if "health" in d or "liquidat" in d or "borrow" in d:
         return "health-factor"
     return "yield"
 
 
-def _run_agent_for_category(category: str, wallet_address: str, job: dict) -> str:
+def _run_agent(category: str, client: str, job: dict) -> str:
     if category == "rebalancing":
-        return run_rebalancing_analysis(wallet_address)
+        return run_rebalancing_analysis(client)
     elif category == "grid-trading":
-        return run_grid_trading_analysis(wallet_address)
+        return run_grid_trading_analysis(client)
     elif category == "yield":
-        return run_yield_analysis(wallet_address)
+        return run_yield_analysis(client)
     elif category == "health-factor":
-        return run_health_factor_analysis(wallet_address)
-    return f"Analysis complete for task: {job.get('description', '')}"
+        return run_health_factor_analysis(client)
+    return f"Analysis complete for: {job.get('description', '')}"
 
 
-def _build_canonical_manifest(job_id: int, content: str) -> tuple[str, str]:
+def _build_manifest(job_id: int, content: str) -> tuple[str, str]:
     addresses = job_ops.contract_addresses
-    manifest = {
-        "version": 1,
-        "job_id": job_id,
+    manifest  = {
+        "version":  1,
+        "job_id":   job_id,
         "chain_id": 97,
         "contracts": {
             "commerce": addresses["commerce"],
@@ -211,31 +216,27 @@ def _on_funded_job(job: dict) -> None:
     client = job.get("client", "unknown")
     task   = job.get("description", "")
 
-    print(f"\n[provider] FUNDED job #{job_id} received")
-    print(f"[provider] client: {client}")
+    print(f"\n[provider] FUNDED job #{job_id}  client={client}")
     print(f"[provider] task: {task[:80]}...")
 
     category = _detect_category(task)
-    print(f"[provider] routing to: {category}")
-    content = _run_agent_for_category(category, client, job)
-    print(f"[provider] agent output: {len(content)} chars")
+    print(f"[provider] routing → {category}")
+    content = _run_agent(category, client, job)
 
-    manifest_text, manifest_hash = _build_canonical_manifest(job_id, content)
+    manifest_text, manifest_hash = _build_manifest(job_id, content)
     _manifest_store[str(job_id)] = manifest_text
     deliverable_url = f"{AGENT_HOST}/manifests/{job_id}"
 
     print(f"[provider] manifest hash: {manifest_hash}")
-    print(f"[provider] deliverable URL: {deliverable_url}")
-
     try:
         result = job_ops.submit_result(
             job_id=job_id,
             deliverable=manifest_hash,
             deliverable_url=deliverable_url,
         )
-        print(f"[provider] ✓ submitted job #{job_id} tx: {result['transactionHash']}")
+        print(f"[provider] ✓ submitted tx: {result['transactionHash']}")
     except Exception as e:
-        print(f"[provider] ✗ submit failed for job #{job_id}: {e}")
+        print(f"[provider] ✗ submit failed: {e}")
 
 
 @app.get("/manifests/{job_id}")
@@ -243,11 +244,10 @@ def serve_manifest(job_id: int):
     text = _manifest_store.get(str(job_id))
     if not text:
         return JSONResponse({"error": "manifest not found"}, status_code=404)
-    from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content=text, media_type="application/json")
 
 
-def _start_poll_loop():
+def _start_watcher():
     print(f"[provider] starting funded_job_watcher for {PROVIDER_ADDR}")
     funded_job_watcher(
         job_ops=job_ops,
@@ -259,6 +259,5 @@ def _start_poll_loop():
 
 if __name__ == "__main__":
     import uvicorn
-    t = threading.Thread(target=_start_poll_loop, daemon=True)
-    t.start()
+    threading.Thread(target=_start_watcher, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("AGENT_PORT", 8010)))
