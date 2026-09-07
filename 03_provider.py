@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from web3 import Web3
 
@@ -43,6 +44,17 @@ job_ops = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
 PROVIDER_ADDR = wallet.address
 
 app = FastAPI()
+
+# Deployment-only configuration: allows the Vercel-hosted UI to call the API.
+# Agent implementations and execution logic are unchanged.
+allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"]
+)
 
 AGENT_CARD = {
     "name": "Smart Money Era Multi-Category Agent",
