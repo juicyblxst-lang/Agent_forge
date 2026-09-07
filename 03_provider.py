@@ -109,7 +109,8 @@ async def a2a_endpoint(request: Request):
 
     if skill == "negotiate-erc8183-job":
         task_description = data.get("task_description", "")
-        payment_token = job_ops.payment_token
+        payment_token = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
+price_u = 1 * 10**18
         price_u = 1 * 10**18
 
         quote = job_ops.build_signed_quote(
