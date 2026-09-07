@@ -244,7 +244,9 @@ def _start_watcher():
     )
 
 
+# Start watcher at module load — works whether run directly or via uvicorn
+threading.Thread(target=_start_watcher, daemon=True).start()
+
 if __name__ == "__main__":
     import uvicorn
-    threading.Thread(target=_start_watcher, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("AGENT_PORT", 8010)))
