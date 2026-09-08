@@ -73,18 +73,30 @@ def _request_quote(a2a_url: str, task_description: str, category: str) -> dict:
     return next((p.get("data", {}) for p in parts if "data" in p), {})
 
 
-def _verify_deliverable(deliverable_url: str, on_chain_hash: str) -> str:
+Fix _verify_deliverable in GitHub → 04_client.py:
+
+def _verify_deliverable(deliverable_url: str, on_chain_hash) -> str:
     r = httpx.get(deliverable_url, timeout=15)
     r.raise_for_status()
     raw_text = r.text
-    computed = Web3.keccak(text=raw_text).hex()
-    if computed.lower() != on_chain_hash.lower():
-        raise ValueError(
-            f"Deliverable hash MISMATCH.\non-chain: {on_chain_hash}\ncomputed: {computed}"
-        )
-    manifest = json.loads(raw_text)
-    return manifest.get("response", {}).get("content", raw_text)
 
+    # Normalise on-chain hash to hex string
+    if isinstance(on_chain_hash, bytes):
+        on_chain_hex = on_chain_hash.hex()
+    else:
+        on_chain_hex = str(on_chain_hash).lower().lstrip("0x")
+
+    # Hash canonical JSON (sorted keys, no spaces) — matches DeliverableManifest.manifest_hash()
+    manifest = json.loads(raw_text)
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    computed  = Web3.keccak(text=canonical).hex().lstrip("0x")
+
+    if computed.lower() != on_chain_hex.lower():
+        raise ValueError(
+            f"Deliverable hash MISMATCH.\non-chain: {on_chain_hex}\ncomputed: {computed}"
+        )
+
+    return manifest.get("response", {}).get("content", raw_text)
 
 def hire_agent(category: str, task: str | None = None) -> None:
     wallet     = EVMWalletProvider(private_key=CLIENT_KEY, password=WALLET_PASS)
