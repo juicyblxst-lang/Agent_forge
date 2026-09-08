@@ -14,11 +14,11 @@ from bnbagent import EVMWalletProvider
 from bnbagent.erc8183 import ERC8183Client
 from discover import discover_agents, pick_for_category, assert_all_four_covered, HACKATHON_CATEGORIES
 
-CLIENT_KEY        = os.environ["CLIENT_PRIVATE_KEY"]
-WALLET_PASS       = os.getenv("WALLET_PASSWORD", "changeme")
-NETWORK           = os.getenv("NETWORK", "bsc-testnet")
-AGENT_HOST        = os.getenv("AGENT_HOST", "https://agent-forge-atdz.onrender.com")
-U_TOKEN_ADDRESS   = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
+CLIENT_KEY         = os.environ["CLIENT_PRIVATE_KEY"]
+WALLET_PASS        = os.getenv("WALLET_PASSWORD", "changeme")
+NETWORK            = os.getenv("NETWORK", "bsc-testnet")
+AGENT_HOST         = os.getenv("AGENT_HOST", "https://agent-forge-atdz.onrender.com")
+U_TOKEN_ADDRESS    = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565")
 JOB_EXPIRY_MINUTES = 65
 
 
@@ -34,7 +34,7 @@ def _verify_quote(quote_data: dict, expected_provider: str) -> None:
             f"Payment token mismatch: expected {U_TOKEN_ADDRESS}, got {got_token}. Aborting."
         )
     print(
-        f"[client] ✓ quote verified — provider={expected_provider[:10]}… "
+        f"[client] quote verified -- provider={expected_provider[:10]}... "
         f"price={int(quote_data['price']) / 1e18:.4f} $U"
     )
 
@@ -73,8 +73,6 @@ def _request_quote(a2a_url: str, task_description: str, category: str) -> dict:
     return next((p.get("data", {}) for p in parts if "data" in p), {})
 
 
-Fix _verify_deliverable in GitHub → 04_client.py:
-
 def _verify_deliverable(deliverable_url: str, on_chain_hash) -> str:
     r = httpx.get(deliverable_url, timeout=15)
     r.raise_for_status()
@@ -86,8 +84,8 @@ def _verify_deliverable(deliverable_url: str, on_chain_hash) -> str:
     else:
         on_chain_hex = str(on_chain_hash).lower().lstrip("0x")
 
-    # Hash canonical JSON (sorted keys, no spaces) — matches DeliverableManifest.manifest_hash()
-    manifest = json.loads(raw_text)
+    # Hash canonical JSON (sorted keys, no spaces) -- matches DeliverableManifest.manifest_hash()
+    manifest  = json.loads(raw_text)
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     computed  = Web3.keccak(text=canonical).hex().lstrip("0x")
 
@@ -98,20 +96,21 @@ def _verify_deliverable(deliverable_url: str, on_chain_hash) -> str:
 
     return manifest.get("response", {}).get("content", raw_text)
 
+
 def hire_agent(category: str, task: str | None = None) -> None:
-    wallet     = EVMWalletProvider(private_key=CLIENT_KEY, password=WALLET_PASS)
-    erc8183    = ERC8183Client(wallet, network=NETWORK)
+    wallet      = EVMWalletProvider(private_key=CLIENT_KEY, password=WALLET_PASS)
+    erc8183     = ERC8183Client(wallet, network=NETWORK)
     client_addr = wallet.address
     print(f"\n[client] wallet: {client_addr}")
 
-    # ── Discover ──────────────────────────────────────────────────────────────
+    # Discover
     print(f"[client] discovering agents for category: {category}")
     agents = discover_agents(categories=HACKATHON_CATEGORIES, require_live=True, verbose=True)
     assert_all_four_covered(agents)
 
     provider_record = pick_for_category(agents, category)
     if not provider_record:
-        print(f"[client] ✗ no live agent for category '{category}'")
+        print(f"[client] no live agent for category '{category}'")
         sys.exit(1)
 
     provider_addr = (
@@ -122,22 +121,22 @@ def hire_agent(category: str, task: str | None = None) -> None:
     print(f"[client] selected provider: {provider_addr}")
     print(f"[client] A2A endpoint: {a2a_url}")
 
-    # ── Agent card ────────────────────────────────────────────────────────────
+    # Agent card
     card = _fetch_agent_card(a2a_url)
     print(f"[client] agent card: {card.get('name')}")
 
-    # ── Quote ─────────────────────────────────────────────────────────────────
+    # Quote
     task_description = task or f"Run {category} analysis for wallet {client_addr}"
     print(f"[client] requesting quote for task: {task_description[:60]}...")
     quote = _request_quote(a2a_url, task_description, category)
     _verify_quote(quote, expected_provider=provider_addr)
 
-    # ── Budget & decimals ─────────────────────────────────────────────────────
-    decimals = erc8183.token_decimals()
-    budget   = 1 * (10 ** decimals)
+    # Budget & decimals
+    decimals   = erc8183.token_decimals()
+    budget     = 1 * (10 ** decimals)
     expired_at = int(time.time()) + JOB_EXPIRY_MINUTES * 60
 
-    # ── create_job ────────────────────────────────────────────────────────────
+    # create_job
     print("[client] create_job...")
     res    = erc8183.create_job(
         provider=provider_addr,
@@ -145,25 +144,25 @@ def hire_agent(category: str, task: str | None = None) -> None:
         description=task_description,
     )
     job_id = res["jobId"]
-    print(f"[client] ✓ job created jobId={job_id} tx: {res['transactionHash']}")
+    print(f"[client] job created jobId={job_id} tx: {res['transactionHash']}")
 
-    # ── register_job ──────────────────────────────────────────────────────────
+    # register_job
     print("[client] register_job...")
     reg = erc8183.register_job(job_id)
-    print(f"[client] ✓ registered tx: {reg['transactionHash']}")
+    print(f"[client] registered tx: {reg['transactionHash']}")
 
-    # ── set_budget ────────────────────────────────────────────────────────────
+    # set_budget
     print(f"[client] set_budget ({budget / 1e18:.4f} $U)...")
     sb = erc8183.set_budget(job_id, budget)
-    print(f"[client] ✓ budget set tx: {sb['transactionHash']}")
+    print(f"[client] budget set tx: {sb['transactionHash']}")
 
-    # ── fund ──────────────────────────────────────────────────────────────────
+    # fund
     print("[client] fund (ERC-20 escrow)...")
     fund = erc8183.fund(job_id, budget)
-    print(f"[client] ✓ funded tx: {fund['transactionHash']}")
-    print("[client] status: FUNDED — waiting for provider to submit...")
+    print(f"[client] funded tx: {fund['transactionHash']}")
+    print("[client] status: FUNDED -- waiting for provider to submit...")
 
-    # ── Poll for SUBMITTED ────────────────────────────────────────────────────
+    # Poll for SUBMITTED
     print("[client] polling for SUBMITTED status...")
     state = None
     for attempt in range(40):
@@ -174,7 +173,7 @@ def hire_agent(category: str, task: str | None = None) -> None:
         if str(status) in ("SUBMITTED", "2") or status == 2:
             break
     else:
-        print("[client] ✗ timed out. Check provider logs.")
+        print("[client] timed out. Check provider logs.")
         sys.exit(1)
 
     deliverable_hash = state.get("deliverable") if isinstance(state, dict) else getattr(state, "deliverable", None)
@@ -182,15 +181,15 @@ def hire_agent(category: str, task: str | None = None) -> None:
         (state.get("deliverableUrl") if isinstance(state, dict) else None)
         or f"{AGENT_HOST}/manifests/{job_id}"
     )
-    print(f"[client] ✓ SUBMITTED deliverable: {deliverable_url}")
+    print(f"[client] SUBMITTED deliverable: {deliverable_url}")
 
     content = _verify_deliverable(deliverable_url, deliverable_hash)
-    print("[client] ✓ hash verified — deliverable is authentic\n")
-    print("═" * 70)
+    print("[client] hash verified -- deliverable is authentic\n")
+    print("=" * 70)
     print("AGENT DELIVERABLE:")
-    print("═" * 70)
+    print("=" * 70)
     print(content)
-    print("═" * 70)
+    print("=" * 70)
     print(f"\n[client] jobId={job_id} complete.")
     print(f"[client] Run 05_settle.py --job-id {job_id} after the dispute window.")
 
