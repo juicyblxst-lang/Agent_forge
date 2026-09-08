@@ -160,16 +160,16 @@ def hire_agent(category: str, task: str | None = None) -> None:
         status = state.status if hasattr(state, "status") else state.get("status", "")
         print(f"[client] poll {attempt+1:2d}: status={status}")
         if str(status) in ("SUBMITTED", "2") or status == 2:
-    break
+            break
     else:
         print("[client] ✗ timed out. Check provider logs.")
         sys.exit(1)
 
     deliverable_hash = state.get("deliverable") if isinstance(state, dict) else getattr(state, "deliverable", None)
-deliverable_url  = (
-    (state.get("deliverableUrl") if isinstance(state, dict) else None)
-    or f"{AGENT_HOST}/manifests/{job_id}"
-)
+    deliverable_url  = (
+        (state.get("deliverableUrl") if isinstance(state, dict) else None)
+        or f"{AGENT_HOST}/manifests/{job_id}"
+    )
     print(f"[client] ✓ SUBMITTED deliverable: {deliverable_url}")
 
     content = _verify_deliverable(deliverable_url, deliverable_hash)
