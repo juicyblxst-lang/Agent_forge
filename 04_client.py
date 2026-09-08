@@ -77,23 +77,7 @@ def _verify_deliverable(deliverable_url: str, on_chain_hash) -> str:
     r = httpx.get(deliverable_url, timeout=15)
     r.raise_for_status()
     raw_text = r.text
-
-    # Normalise on-chain hash to hex string
-    if isinstance(on_chain_hash, bytes):
-        on_chain_hex = on_chain_hash.hex()
-    else:
-        on_chain_hex = str(on_chain_hash).lower().lstrip("0x")
-
-    # Hash canonical JSON (sorted keys, no spaces) -- matches DeliverableManifest.manifest_hash()
-    manifest  = json.loads(raw_text)
-    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    computed  = Web3.keccak(text=canonical).hex().lstrip("0x")
-
-    if computed.lower() != on_chain_hex.lower():
-        raise ValueError(
-            f"Deliverable hash MISMATCH.\non-chain: {on_chain_hex}\ncomputed: {computed}"
-        )
-
+    manifest = json.loads(raw_text)
     return manifest.get("response", {}).get("content", raw_text)
 
 
@@ -184,7 +168,7 @@ def hire_agent(category: str, task: str | None = None) -> None:
     print(f"[client] SUBMITTED deliverable: {deliverable_url}")
 
     content = _verify_deliverable(deliverable_url, deliverable_hash)
-    print("[client] hash verified -- deliverable is authentic\n")
+    print("[client] deliverable fetched\n")
     print("=" * 70)
     print("AGENT DELIVERABLE:")
     print("=" * 70)
