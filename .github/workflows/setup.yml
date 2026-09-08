@@ -13,6 +13,10 @@ on:
           - register
           - client
           - settle
+      job_id:
+        description: 'Job ID to settle (only needed for settle step)'
+        required: false
+        default: ''
 
 jobs:
   setup:
