@@ -46,6 +46,10 @@ async def main():
     status = state.get("status", "")
     print(f"\n[settle] job #{job_id} current status: {status}")
 
+    if str(status) in ("3", "COMPLETED"):
+        print(f"[settle] job #{job_id} is already COMPLETED on-chain. Nothing to do.")
+        return
+
     if args.refund:
         print(f"[settle] claiming refund for expired job #{job_id}...")
         result = await job_ops.claim_refund(job_id=job_id)
@@ -53,15 +57,9 @@ async def main():
         return
 
     if args.dispute:
-        if str(status) in ("3", "COMPLETED"):
-        print(f"[settle] job #{job_id} is already COMPLETED on-chain. Nothing to do.")
-        return
-
-    if status not in ("SUBMITTED", "2", 2):
-        print(f"[settle] can only settle SUBMITTED jobs, got: {status}")
-        if str(status) in ("1", "FUNDED"):
-            print("[settle] Provider has not submitted yet. Wait or check provider logs.")
-        sys.exit(1)
+        if str(status) not in ("2", "SUBMITTED"):
+            print(f"[settle] can only dispute SUBMITTED jobs, got: {status}")
+            sys.exit(1)
         submitted_at = state.get("submitted_at", 0)
         window_end   = submitted_at + DISPUTE_WINDOW_SECONDS
         remaining    = window_end - time.time()
@@ -75,9 +73,9 @@ async def main():
         print(f"[settle] monitor with: python 05_settle.py --job-id {job_id}")
         return
 
-    if status != "SUBMITTED":
+    if str(status) not in ("2", "SUBMITTED"):
         print(f"[settle] can only settle SUBMITTED jobs, got: {status}")
-        if status == "FUNDED":
+        if str(status) in ("1", "FUNDED"):
             print("[settle] Provider has not submitted yet. Wait or check provider logs.")
         sys.exit(1)
 
