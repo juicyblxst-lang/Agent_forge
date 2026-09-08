@@ -53,9 +53,15 @@ async def main():
         return
 
     if args.dispute:
-        if status != "SUBMITTED":
-            print(f"[settle] can only dispute SUBMITTED jobs, got: {status}")
-            sys.exit(1)
+        if str(status) in ("3", "COMPLETED"):
+        print(f"[settle] job #{job_id} is already COMPLETED on-chain. Nothing to do.")
+        return
+
+    if status not in ("SUBMITTED", "2", 2):
+        print(f"[settle] can only settle SUBMITTED jobs, got: {status}")
+        if str(status) in ("1", "FUNDED"):
+            print("[settle] Provider has not submitted yet. Wait or check provider logs.")
+        sys.exit(1)
         submitted_at = state.get("submitted_at", 0)
         window_end   = submitted_at + DISPUTE_WINDOW_SECONDS
         remaining    = window_end - time.time()
