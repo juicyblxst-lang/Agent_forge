@@ -1,8 +1,8 @@
 import hashlib
 import json
 import os
-import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -35,7 +35,23 @@ job_ops       = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
 PROVIDER_ADDR = wallet.address
 ACCOUNT       = Account.from_key(PROVIDER_KEY)
 
-app = FastAPI()
+_manifest_store: dict[str, str] = {}
+
+
+# ── Lifespan: start watcher as async background task ─────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import asyncio
+    task = asyncio.create_task(
+        funded_job_watcher(job_ops, _on_funded_job, interval=15)
+    )
+    print(f"[provider] funded_job_watcher started for {PROVIDER_ADDR}")
+    yield
+    task.cancel()
+
+
+app = FastAPI(lifespan=lifespan)
 
 _raw_origins    = os.getenv("CORS_ORIGINS", "*")
 allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
@@ -99,6 +115,7 @@ async def a2a_endpoint(request: Request):
     data    = next((p.get("data", {}) for p in parts if "data" in p), {})
     skill   = data.get("skill", "")
 
+    # ── Skill: negotiate-erc8183-job ─────────────────────────────────────────
     if skill == "negotiate-erc8183-job":
         task_description = data.get("task_description", "")
         price_u  = 1 * 10**18
@@ -140,6 +157,7 @@ async def a2a_endpoint(request: Request):
             },
         })
 
+    # ── Skill: erc8183-job-status ─────────────────────────────────────────────
     elif skill == "erc8183-job-status":
         job_id = data.get("job_id")
         if not job_id:
@@ -181,9 +199,6 @@ def _run_agent(category: str, client: str, job: dict) -> str:
     return f"Analysis complete for: {job.get('description', '')}"
 
 
-_manifest_store: dict[str, str] = {}
-
-
 def _on_funded_job(job: dict) -> None:
     # SDK delivers camelCase keys
     job_id = job.get("jobId") or job.get("job_id")
@@ -198,7 +213,6 @@ def _on_funded_job(job: dict) -> None:
     content = _run_agent(category, client, job)
     print(f"[provider] agent output: {len(content)} chars")
 
-    # Build and store manifest for /manifests/{job_id}
     manifest = json.dumps({
         "version":  1,
         "job_id":   job_id,
@@ -216,7 +230,6 @@ def _on_funded_job(job: dict) -> None:
     _manifest_store[str(job_id)] = manifest
 
     try:
-        # submit_result takes the deliverable content string — SDK hashes it internally
         result = job_ops.submit_result(
             job_id=job_id,
             deliverable=content,
@@ -233,14 +246,6 @@ def serve_manifest(job_id: int):
         return JSONResponse({"error": "manifest not found"}, status_code=404)
     return PlainTextResponse(content=text, media_type="application/json")
 
-def _start_watcher():
-    import asyncio
-    print(f"[provider] starting funded_job_watcher for {PROVIDER_ADDR}")
-    asyncio.run(funded_job_watcher(job_ops, _on_funded_job, interval=15))
-
-
-# Start watcher at module load — works whether run directly or via uvicorn
-threading.Thread(target=_start_watcher, daemon=True).start()
 
 if __name__ == "__main__":
     import uvicorn
