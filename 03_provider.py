@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import pathlib
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -40,14 +41,88 @@ job_ops = ERC8183JobOps(
 PROVIDER_ADDR = wallet.address
 ACCOUNT       = Account.from_key(PROVIDER_KEY)
 
-_manifest_store: dict[str, str] = {}
+# ── Manifest persistence ──────────────────────────────────────────────────────
+
+MANIFEST_DIR = pathlib.Path(os.getenv("MANIFEST_DIR", "/tmp/manifests"))
+MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ── Lifespan: start watcher as async background task ─────────────────────────
+def _save_manifest(job_id: str, content: str) -> None:
+    manifest = json.dumps({
+        "version":  1,
+        "job_id":   job_id,
+        "chain_id": 97,
+        "response": {
+            "content":      content,
+            "content_type": "text/plain",
+        },
+        "metadata": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "agent":        "smart-money-era-provider",
+        },
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    (MANIFEST_DIR / f"{job_id}.json").write_text(manifest)
+
+
+def _load_manifest(job_id: str) -> str | None:
+    p = MANIFEST_DIR / f"{job_id}.json"
+    return p.read_text() if p.exists() else None
+
+
+# ── Agent dispatch ────────────────────────────────────────────────────────────
+
+def _detect_category(desc: str) -> str:
+    d = desc.lower()
+    if "rebalanc" in d:
+        return "rebalancing"
+    if "grid" in d:
+        return "grid-trading"
+    if "yield" in d or "apr" in d or "liquidity" in d:
+        return "yield"
+    if "health" in d or "liquidat" in d or "borrow" in d:
+        return "health-factor"
+    return "yield"
+
+
+def _run_agent(category: str, client: str, job: dict) -> str:
+    if category == "rebalancing":
+        return run_rebalancing_analysis(client)
+    elif category == "grid-trading":
+        return run_grid_trading_analysis(client)
+    elif category == "yield":
+        return run_yield_analysis(client)
+    elif category == "health-factor":
+        return run_health_factor_analysis(client)
+    return f"Analysis complete for: {job.get('description', '')}"
+
+
+def _seed_completed_manifests() -> None:
+    """Re-generate manifests for already-completed jobs if not on disk."""
+    seeds = {
+        "1113": ("rebalancing",   "0x0000000000000000000000000000000000000000"),
+        "1114": ("grid-trading",  "0x0000000000000000000000000000000000000000"),
+        "1116": ("yield",         "0x0000000000000000000000000000000000000000"),
+        "1117": ("health-factor", "0x0000000000000000000000000000000000000000"),
+    }
+    for job_id, (category, client) in seeds.items():
+        if not _load_manifest(job_id):
+            print(f"[provider] seeding manifest for job #{job_id} ({category})")
+            try:
+                content = _run_agent(category, client, {"description": category})
+                _save_manifest(job_id, content)
+                print(f"[provider] ✓ seeded #{job_id}")
+            except Exception as e:
+                print(f"[provider] ✗ seed failed for #{job_id}: {e}")
+        else:
+            print(f"[provider] manifest #{job_id} already on disk — skipping")
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    _seed_completed_manifests()
     task = asyncio.create_task(
         funded_job_watcher(job_ops, _on_funded_job, interval=15)
     )
@@ -175,33 +250,6 @@ async def a2a_endpoint(request: Request):
     return JSONResponse({"error": f"unknown skill: {skill}"}, status_code=400)
 
 
-# ── Agent dispatch ────────────────────────────────────────────────────────────
-
-def _detect_category(desc: str) -> str:
-    d = desc.lower()
-    if "rebalanc" in d:
-        return "rebalancing"
-    if "grid" in d:
-        return "grid-trading"
-    if "yield" in d or "apr" in d or "liquidity" in d:
-        return "yield"
-    if "health" in d or "liquidat" in d or "borrow" in d:
-        return "health-factor"
-    return "yield"
-
-
-def _run_agent(category: str, client: str, job: dict) -> str:
-    if category == "rebalancing":
-        return run_rebalancing_analysis(client)
-    elif category == "grid-trading":
-        return run_grid_trading_analysis(client)
-    elif category == "yield":
-        return run_yield_analysis(client)
-    elif category == "health-factor":
-        return run_health_factor_analysis(client)
-    return f"Analysis complete for: {job.get('description', '')}"
-
-
 async def _on_funded_job(job: dict) -> None:
     job_id = job.get("jobId") or job.get("job_id")
     client = job.get("client", "unknown")
@@ -215,21 +263,7 @@ async def _on_funded_job(job: dict) -> None:
     content = _run_agent(category, client, job)
     print(f"[provider] agent output: {len(content)} chars")
 
-    # Store manifest for /manifests/{job_id}
-    manifest = json.dumps({
-        "version":  1,
-        "job_id":   job_id,
-        "chain_id": 97,
-        "response": {
-            "content":      content,
-            "content_type": "text/plain",
-        },
-        "metadata": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "agent":        "smart-money-era-provider",
-        },
-    }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    _manifest_store[str(job_id)] = manifest
+    _save_manifest(str(job_id), content)
 
     result = await job_ops.submit_result(
         job_id=job_id,
@@ -243,7 +277,7 @@ async def _on_funded_job(job: dict) -> None:
 
 @app.get("/manifests/{job_id}")
 def serve_manifest(job_id: int):
-    text = _manifest_store.get(str(job_id))
+    text = _load_manifest(str(job_id))
     if not text:
         return JSONResponse({"error": "manifest not found"}, status_code=404)
     return PlainTextResponse(content=text, media_type="application/json")
