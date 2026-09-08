@@ -76,7 +76,7 @@ AGENT_CARD = {
         {
             "id": "negotiate-erc8183-job",
             "name": "Negotiate ERC-8183 Job",
-            "description": "Returns a signed quote for a job. Specify category in task_description.",
+            "description": "Returns a signed quote. Specify category in task_description.",
             "inputModes": ["application/json"],
             "outputModes": ["application/json"],
         },
@@ -115,7 +115,6 @@ async def a2a_endpoint(request: Request):
     data    = next((p.get("data", {}) for p in parts if "data" in p), {})
     skill   = data.get("skill", "")
 
-    # ── Skill: negotiate-erc8183-job ─────────────────────────────────────────
     if skill == "negotiate-erc8183-job":
         task_description = data.get("task_description", "")
         price_u  = 1 * 10**18
@@ -157,12 +156,11 @@ async def a2a_endpoint(request: Request):
             },
         })
 
-    # ── Skill: erc8183-job-status ─────────────────────────────────────────────
     elif skill == "erc8183-job-status":
         job_id = data.get("job_id")
         if not job_id:
             return JSONResponse({"error": "job_id required"}, status_code=400)
-        job_state = job_ops.get_job(int(job_id))
+        job_state = await job_ops.get_job(int(job_id))
         return JSONResponse({
             "jsonrpc": "2.0",
             "id": body.get("id"),
@@ -199,8 +197,7 @@ def _run_agent(category: str, client: str, job: dict) -> str:
     return f"Analysis complete for: {job.get('description', '')}"
 
 
-def _on_funded_job(job: dict) -> None:
-    # SDK delivers camelCase keys
+async def _on_funded_job(job: dict) -> None:
     job_id = job.get("jobId") or job.get("job_id")
     client = job.get("client", "unknown")
     task   = job.get("description", "")
@@ -213,6 +210,7 @@ def _on_funded_job(job: dict) -> None:
     content = _run_agent(category, client, job)
     print(f"[provider] agent output: {len(content)} chars")
 
+    # Store manifest for /manifests/{job_id}
     manifest = json.dumps({
         "version":  1,
         "job_id":   job_id,
@@ -226,17 +224,16 @@ def _on_funded_job(job: dict) -> None:
             "agent":        "smart-money-era-provider",
         },
     }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-
     _manifest_store[str(job_id)] = manifest
 
-    try:
-        result = job_ops.submit_result(
-            job_id=job_id,
-            deliverable=content,
-        )
-        print(f"[provider] ✓ submitted tx: {result['transactionHash']}")
-    except Exception as e:
-        print(f"[provider] ✗ submit failed: {e}")
+    result = await job_ops.submit_result(
+        job_id=job_id,
+        response_content=content,
+    )
+    if result.get("success"):
+        print(f"[provider] ✓ submitted tx: {result['txHash']}")
+    else:
+        print(f"[provider] ✗ submit failed: {result.get('error')}")
 
 
 @app.get("/manifests/{job_id}")
