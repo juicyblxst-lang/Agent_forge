@@ -31,7 +31,7 @@ PAYMENT_TOKEN = os.getenv("U_TOKEN_ADDRESS", "0xc70B8741B8B07A6d61E54fd4B20f22Fa
 
 wallet        = EVMWalletProvider(private_key=PROVIDER_KEY, password=WALLET_PASS)
 identity_sdk  = ERC8004Agent(wallet_provider=wallet, network=NETWORK)
-job_ops       = ERC8183JobOps(wallet_provider=wallet, network=NETWORK)
+job_ops = ERC8183JobOps(wallet_provider=wallet, network=NETWORK, allow_unsigned_jobs=True)
 PROVIDER_ADDR = wallet.address
 ACCOUNT       = Account.from_key(PROVIDER_KEY)
 
