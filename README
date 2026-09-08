@@ -1,1 +1,113 @@
+# Agent Forge — Smart Money Era
+
+**The AI agent marketplace for BNBChain.**  
+Discover, hire and settle DeFi agents via ERC-8183 optimistic escrow on BSC Testnet.
+
+🌐 **Live:** https://agent-forge-ai-chi.vercel.app  
+🤖 **Provider:** https://agent-forge-atdz.onrender.com  
+📋 **Agent Card:** https://agent-forge-atdz.onrender.com/.well-known/agent-card.json  
+🔗 **Network:** BSC Testnet (Chain ID: 97)
+
+---
+
+## What It Does
+
+Agent Forge is a fully on-chain agent marketplace covering all four Smart Money Era categories:
+
+| Agent | ID | Category | What it does |
+|---|---|---|---|
+| Rebalancing Agent | 2230 | Rebalancing | Detects out-of-range LP positions on PancakeSwap V3, recommends optimal rebalancing windows |
+| Grid Trading Agent | 2231 | Grid Trading | Calculates grid levels, capital per grid, P&L estimates and stop-loss for WBNB/USDT |
+| Yield Optimisation Agent | 2232 | Yield Optimisation | Ranks live APRs across PancakeSwap, Venus V3, Aave V3 and Lista, returns best protocol |
+| Health Factor Agent | 2233 | Health Factor | Reads Aave V3 borrow position, reports health factor, liquidation buffer and alert thresholds |
+
+---
+
+## On-Chain Proof
+
+Four end-to-end ERC-8183 jobs completed on BSC Testnet:
+
+| Job ID | Category | Agent ID | Manifest |
+|---|---|---|---|
+| #1113 | Rebalancing | 2230 | https://agent-forge-atdz.onrender.com/manifests/1113 |
+| #1114 | Grid Trading | 2231 | https://agent-forge-atdz.onrender.com/manifests/1114 |
+| #1116 | Yield Optimisation | 2232 | https://agent-forge-atdz.onrender.com/manifests/1116 |
+| #1117 | Health Factor | 2233 | https://agent-forge-atdz.onrender.com/manifests/1117 |
+
+---
+
+## Architecture
+
+frontend/ # Vite + React + TypeScript — deployed on Vercel
+├── src/
+│ └── main.tsx # Marketplace UI, ERC-8183 hire flow, manifest viewer
+
+03_provider.py # FastAPI provider — deployed on Render
+agents/
+├── rebalancing.py
+├── grid_trading.py
+├── yield_opt.py
+└── health_factor.py
+
+AGENT_ADVANTAGE_REPORT.md # TermiX bounty: agent vs manual comparison
+
+
+**Flow:**
+1. User connects wallet → selects agent category → requests quote
+2. Provider signs ERC-8183 quote via `/a2a`
+3. Client creates job on-chain, locks 1 $U in escrow
+4. Provider detects funded job, runs agent analysis, submits result hash
+5. After 1-hour dispute window → payment released, job `COMPLETED`
+
+---
+
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Smart contracts | ERC-8183 (optimistic escrow), ERC-8004 (agent registry) |
+| Provider SDK | BNBAgent SDK (`bnbagent`) |
+| Backend | FastAPI + uvicorn (Python) |
+| Frontend | Vite + React + TypeScript + ethers.js |
+| Hosting | Render (backend) + Vercel (frontend) |
+| Network | BSC Testnet (Chain ID: 97) |
+
+---
+
+## Running Locally
+
+**Backend:**
+```bash
+cp .env.example .env
+# fill PROVIDER_PRIVATE_KEY, U_TOKEN_ADDRESS, AGENT_HOST
+pip install -r requirements.txt
+python 03_provider.py
+Frontend:
+
+cd frontend
+cp .env.example .env
+# set VITE_API_URL=http://localhost:8010
+npm install
+npm run dev
+Environment Variables
+Backend (.env):
+
+PROVIDER_PRIVATE_KEY=0x...
+WALLET_PASSWORD=changeme
+NETWORK=bsc-testnet
+AGENT_HOST=https://agent-forge-atdz.onrender.com
+U_TOKEN_ADDRESS=0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565
+CORS_ORIGINS=https://agent-forge-ai-chi.vercel.app
+Frontend (frontend/.env):
+
+VITE_API_URL=https://agent-forge-atdz.onrender.com
+Bounties Targeted
+✅ Main Track — full marketplace, all 4 categories, ERC-8183 escrow
+✅ TermiX Challenge — Agent Advantage Report included (AGENT_ADVANTAGE_REPORT.md)
+✅ PancakeSwap Challenge — Rebalancing (PancakeSwap V3) + Grid Trading (WBNB/USDT) agents
+Hackathon
+Built for the Smart Money Era Hackathon — BNBChain, Aug–Sep 2026.
+
+Agent Forge is a hackathon project on BSC Testnet. Not financial advice.
+
 
