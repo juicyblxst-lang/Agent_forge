@@ -12,6 +12,7 @@ on:
           - funds
           - register
           - client
+          - settle
 
 jobs:
   setup:
@@ -52,7 +53,39 @@ jobs:
           AGENT_HOST: https://agent-forge-atdz.onrender.com
         run: python 02_register_provider.py
 
-      - name: Run client job
+      - name: Run client job - rebalancing
+        if: ${{ github.event.inputs.run_step == 'client' }}
+        env:
+          CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+          AGENT_HOST: https://agent-forge-atdz.onrender.com
+          U_TOKEN_ADDRESS: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"
+          AGENT_ID_REBALANCING: "2230"
+          AGENT_ID_GRID_TRADING: "2231"
+          AGENT_ID_YIELD: "2232"
+          AGENT_ID_HEALTH_FACTOR: "2233"
+        run: python 04_client.py --category rebalancing
+
+      - name: Run client job - grid-trading
+        if: ${{ github.event.inputs.run_step == 'client' }}
+        env:
+          CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+          AGENT_HOST: https://agent-forge-atdz.onrender.com
+          U_TOKEN_ADDRESS: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"
+          AGENT_ID_REBALANCING: "2230"
+          AGENT_ID_GRID_TRADING: "2231"
+          AGENT_ID_YIELD: "2232"
+          AGENT_ID_HEALTH_FACTOR: "2233"
+        run: python 04_client.py --category grid-trading
+
+      - name: Run client job - yield
         if: ${{ github.event.inputs.run_step == 'client' }}
         env:
           CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
@@ -67,3 +100,28 @@ jobs:
           AGENT_ID_YIELD: "2232"
           AGENT_ID_HEALTH_FACTOR: "2233"
         run: python 04_client.py --category yield
+
+      - name: Run client job - health-factor
+        if: ${{ github.event.inputs.run_step == 'client' }}
+        env:
+          CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          PROVIDER_PRIVATE_KEY: ${{ secrets.PROVIDER_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+          AGENT_HOST: https://agent-forge-atdz.onrender.com
+          U_TOKEN_ADDRESS: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"
+          AGENT_ID_REBALANCING: "2230"
+          AGENT_ID_GRID_TRADING: "2231"
+          AGENT_ID_YIELD: "2232"
+          AGENT_ID_HEALTH_FACTOR: "2233"
+        run: python 04_client.py --category health-factor
+
+      - name: Run settle
+        if: ${{ github.event.inputs.run_step == 'settle' }}
+        env:
+          CLIENT_PRIVATE_KEY: ${{ secrets.CLIENT_PRIVATE_KEY }}
+          WALLET_PASSWORD: ${{ secrets.WALLET_PASSWORD }}
+          RPC_URL: https://bsc-testnet-rpc.publicnode.com
+          NETWORK: bsc-testnet
+        run: python 05_settle.py --job-id ${{ github.event.inputs.job_id }}
